@@ -42,6 +42,8 @@ data "aws_caller_identity" "current" {}
 
 locals {
   account_id = data.aws_caller_identity.current.account_id
+  gh_owner   = split("/", var.github_repository)[0]
+  gh_repo    = split("/", var.github_repository)[1]
 }
 
 # --- Terraform state bucket ---
@@ -115,8 +117,12 @@ resource "aws_iam_role" "github_deploy" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            # GitHub sends the repo name with its original casing; allow lower case too.
+            # Repositories created after 2026-07-15 get the immutable subject format
+            # "repo:OWNER@OWNER_ID/REPO@REPO_ID:ref:...", older ones "repo:OWNER/REPO:ref:...".
+            # Accept both, in the original and lower case.
             "token.actions.githubusercontent.com:sub" = [
+              "repo:${local.gh_owner}@*/${local.gh_repo}@*:*",
+              "repo:${lower(local.gh_owner)}@*/${lower(local.gh_repo)}@*:*",
               "repo:${var.github_repository}:*",
               "repo:${lower(var.github_repository)}:*",
             ]
