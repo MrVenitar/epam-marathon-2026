@@ -1,0 +1,72 @@
+name: Backend CI
+
+# Builds the .NET backend and runs its unit tests on every push / pull request that touches it.
+# Deploying is a separate, manual step (Deploy all with backend_mode = update).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: backend/restaurant-backend-app
+  DOTNET_NOLOGO: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Prepare .NET runtime dir
+        run: |
+          if [ -n "$XDG_RUNTIME_DIR" ]; then
+            sudo mkdir -p "$XDG_RUNTIME_DIR/.dotnet/shm"
+            sudo chown -R "$(id -u):$(id -g)" "$XDG_RUNTIME_DIR"
+          fi
+
+      - name: Restore
+        run: dotnet restore restaurant-backend-app.sln
+
+      - name: Build
+        run: dotnet build restaurant-backend-app.sln --no-restore -c Release
+
+      # The group pre-order feature tests must pass.
+      - name: Test group pre-order (owner flow)
+        run: >
+          dotnet test Tests/APIHandler.Tests.csproj --no-build -c Release
+          --filter "FullyQualifiedName~GroupPreOrderTests"
+          --logger "trx;LogFileName=group-pre-order.trx" --results-directory TestResults
+
+      # The whole suite is reported but does not block (some original course tests may be red).
+      - name: Test all
+        continue-on-error: true
+        run: >
+          dotnet test Tests/APIHandler.Tests.csproj --no-build -c Release
+          --logger "trx;LogFileName=all.trx" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: ${{ env.APP_DIR }}/TestResults

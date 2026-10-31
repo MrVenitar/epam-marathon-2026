@@ -555,6 +555,8 @@ Response: `200 OK`
 ```
 
 ### `GET` /reservations/{reservationId}/guest-session-id
+Owner only. Id of the owner's own session in the group of this reservation (created on the first call).
+
 Response: `200 OK`
 ```json
 {
@@ -1180,30 +1182,57 @@ Response: 200 OK
 ```
 
 ### `POST` /group-reservations/{groupReservationId}/submit
-Response: 200 OK
-```json
-{
-  "message": "Group reservation pre-order submitted successfully."
-}
-```
+Owner only. Consolidates the **submitted** guest carts into the reservation's pre-order
+(details and error cases: [GroupPreOrder.md](GroupPreOrder.md)).
 
-### `GET` /guest/groups/{groupReservationId}/sessions
-Response: 200 OK
+Request body:
+```json
+{ "reservationId": "string" }
+```
+Response: `200 OK` — consolidated dishes, one entry per dish
 ```json
 [
-  {
-    "id": "string",
-    "groupReservationId": "string",
-    "guestName": "string",
-    "status": "string"
-  }
+  { "dishId": "dish1", "quantity": 3 },
+  { "dishId": "dish2", "quantity": 2 }
 ]
 ```
 
-### `DELETE` /guest/groups/{groupReservationId}/sessions/{guestSessionId}
-Response: 200 OK
+### `GET` /guest/groups/{groupReservationId}/sessions
+Owner only. Every participant with their dishes, a total per participant and the total of all participants.
+
+Response: `200 OK` (a group nobody has joined yet: `{ "participants": [], "total": 0 }`)
 ```json
 {
-  "message": "Guest session removed from group successfully."
+  "participants": [
+    {
+      "id": "owner-<groupReservationId> | <guestSessionId>",
+      "type": "Owner | Guest",
+      "name": "Andrii",
+      "items": [ { "dish": { "id": "dish1", "name": "Caesar Salad", "price": 180, "...": "..." }, "quantity": 2 } ],
+      "total": 360,
+      "isSubmitted": true
+    }
+  ],
+  "total": 360
+}
+```
+
+### `DELETE` /guest/groups/{groupReservationId}/sessions/{guestSessionId}
+Owner only. Removes a guest and their cart; returns the updated snapshot (same format as `GET .../sessions`).
+
+Response: `200 OK`
+```json
+{
+  "participants": [
+    {
+      "id": "owner-<groupReservationId> | <guestSessionId>",
+      "type": "Owner | Guest",
+      "name": "Andrii",
+      "items": [ { "dish": { "id": "dish1", "name": "Caesar Salad", "price": 180, "...": "..." }, "quantity": 2 } ],
+      "total": 360,
+      "isSubmitted": true
+    }
+  ],
+  "total": 360
 }
 ```
