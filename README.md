@@ -19,6 +19,9 @@ Terraform → Syndicate (backend) → frontend build + upload to S3/CloudFront �
    (e.g. `["me@example.com"]`) for budget/alarm e-mails.
 3. **Actions → Deploy all → Run workflow** (`backend_mode = deploy` the first time, `update` afterwards).
    The web app URL is printed in the run summary.
+4. **CloudFront (HTTPS)**: new AWS accounts must be verified by AWS Support before CloudFront can be created.
+   Until then the frontend is served from S3 static website hosting (HTTP). After verification set the
+   repository variable `ENABLE_CLOUDFRONT` to `true` and run the workflow again (`backend_mode = skip`).
 
 The original course deployment guide follows below.
 

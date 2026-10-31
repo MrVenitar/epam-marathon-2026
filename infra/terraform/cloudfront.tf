@@ -1,4 +1,6 @@
 resource "aws_cloudfront_origin_access_control" "frontend" {
+  count = var.enable_cloudfront ? 1 : 0
+
   name                              = "restaurant-frontend-oac"
   description                       = "OAC for restaurant-frontend S3 bucket"
   origin_access_control_origin_type = "s3"
@@ -7,6 +9,8 @@ resource "aws_cloudfront_origin_access_control" "frontend" {
 }
 
 resource "aws_cloudfront_distribution" "frontend" {
+  count = var.enable_cloudfront ? 1 : 0
+
   enabled             = true
   default_root_object = "index.html"
   price_class         = "PriceClass_100" # cheapest tier — US/Canada/Europe edge locations only
@@ -14,7 +18,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
     origin_id                = "s3-frontend"
-    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
+    origin_access_control_id = aws_cloudfront_origin_access_control.frontend[0].id
   }
 
   default_cache_behavior {
@@ -57,9 +61,13 @@ resource "aws_cloudfront_distribution" "frontend" {
 }
 
 output "cloudfront_distribution_domain_name" {
-  value = aws_cloudfront_distribution.frontend.domain_name
+  value = var.enable_cloudfront ? aws_cloudfront_distribution.frontend[0].domain_name : null
 }
 
 output "cloudfront_distribution_id" {
-  value = aws_cloudfront_distribution.frontend.id
+  value = var.enable_cloudfront ? aws_cloudfront_distribution.frontend[0].id : null
+}
+
+output "frontend_url" {
+  value = var.enable_cloudfront ? "https://${aws_cloudfront_distribution.frontend[0].domain_name}" : "http://${aws_s3_bucket_website_configuration.frontend[0].website_endpoint}"
 }

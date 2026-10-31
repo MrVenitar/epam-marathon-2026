@@ -123,10 +123,10 @@ resource "aws_s3_bucket_policy" "swagger_ui" {
   depends_on = [aws_s3_bucket_public_access_block.swagger_ui]
 }
 
-# --- frontend bucket: private, served exclusively through CloudFront (see cloudfront.tf).
-# Static website hosting + the public-read policy it previously had are removed here:
-# S3 website endpoints don't support CloudFront's signed OAC requests, and OAC access
-# needs the bucket to be otherwise private. ---
+# --- frontend bucket ---
+# enable_cloudfront = true : private bucket, served exclusively through CloudFront with OAC (see cloudfront.tf)
+# enable_cloudfront = false: public S3 static website (fallback while the account is not yet
+#                            verified for CloudFront)
 
 resource "aws_s3_bucket" "frontend" {
   bucket = "restaurant-frontend-${var.account_id}"
@@ -145,15 +145,29 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "frontend" {
 resource "aws_s3_bucket_public_access_block" "frontend" {
   bucket                  = aws_s3_bucket.frontend.id
   block_public_acls       = true
-  block_public_policy     = true
   ignore_public_acls      = true
-  restrict_public_buckets = true
+  block_public_policy     = var.enable_cloudfront
+  restrict_public_buckets = var.enable_cloudfront
+}
+
+resource "aws_s3_bucket_website_configuration" "frontend" {
+  count  = var.enable_cloudfront ? 0 : 1
+  bucket = aws_s3_bucket.frontend.id
+
+  index_document {
+    suffix = "index.html"
+  }
+
+  # Angular SPA client-side routing: unknown paths fall back to index.html
+  error_document {
+    key = "index.html"
+  }
 }
 
 resource "aws_s3_bucket_policy" "frontend" {
   bucket = aws_s3_bucket.frontend.id
 
-  policy = jsonencode({
+  policy = var.enable_cloudfront ? jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
@@ -164,9 +178,20 @@ resource "aws_s3_bucket_policy" "frontend" {
         Resource  = "${aws_s3_bucket.frontend.arn}/*"
         Condition = {
           StringEquals = {
-            "AWS:SourceArn" = aws_cloudfront_distribution.frontend.arn
+            "AWS:SourceArn" = aws_cloudfront_distribution.frontend[0].arn
           }
         }
+      },
+    ]
+    }) : jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadForWebsite"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.frontend.arn}/*"
       },
     ]
   })

@@ -75,6 +75,8 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         env:
           ALERT_EMAILS: ${{ vars.ALERT_EMAILS }}
+          # Set the repository variable ENABLE_CLOUDFRONT=true once AWS has verified the account
+          TF_VAR_enable_cloudfront: ${{ vars.ENABLE_CLOUDFRONT == 'true' }}
         run: |
           if [ -n "$ALERT_EMAILS" ]; then export TF_VAR_alert_emails="$ALERT_EMAILS"; fi
           terraform init -input=false
@@ -121,10 +123,15 @@ jobs:
           echo "api_url=https://$API_ID.execute-api.$AWS_REGION.amazonaws.com/develop" >> "$GITHUB_OUTPUT"
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           echo "bucket=restaurant-frontend-$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
-          DIST_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Origins.Items[0].DomainName=='restaurant-frontend-$ACCOUNT_ID.s3.$AWS_REGION.amazonaws.com'].Id | [0]" --output text)
-          DOMAIN=$(aws cloudfront list-distributions --query "DistributionList.Items[?Id=='$DIST_ID'].DomainName | [0]" --output text)
+          DIST_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Origins.Items[0].DomainName=='restaurant-frontend-$ACCOUNT_ID.s3.$AWS_REGION.amazonaws.com'].Id | [0]" --output text 2>/dev/null || echo None)
+          DOMAIN=$(aws cloudfront list-distributions --query "DistributionList.Items[?Id=='$DIST_ID'].DomainName | [0]" --output text 2>/dev/null || echo None)
           echo "dist_id=$DIST_ID" >> "$GITHUB_OUTPUT"
-          echo "site_url=https://$DOMAIN" >> "$GITHUB_OUTPUT"
+          if [ -n "$DIST_ID" ] && [ "$DIST_ID" != "None" ]; then
+            echo "site_url=https://$DOMAIN" >> "$GITHUB_OUTPUT"
+          else
+            # CloudFront disabled -> S3 static website endpoint
+            echo "site_url=http://restaurant-frontend-$ACCOUNT_ID.s3-website-$AWS_REGION.amazonaws.com" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup Node
         if: inputs.run_frontend
@@ -148,7 +155,7 @@ jobs:
         working-directory: ${{ env.FE_DIR }}
         run: |
           aws s3 sync dist/restaurant-frontend-app/browser "s3://${{ steps.urls.outputs.bucket }}/" --delete
-          if [ "${{ steps.urls.outputs.dist_id }}" != "None" ]; then
+          if [ -n "${{ steps.urls.outputs.dist_id }}" ] && [ "${{ steps.urls.outputs.dist_id }}" != "None" ]; then
             aws cloudfront create-invalidation --distribution-id "${{ steps.urls.outputs.dist_id }}" --paths "/*" > /dev/null
           fi
 
