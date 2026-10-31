@@ -1,0 +1,176 @@
+name: Deploy all
+
+# One button that deploys the whole application into your AWS account:
+#   1. Terraform  - shared infrastructure (Cognito, SQS, S3 buckets, CloudFront, alarms, budget)
+#   2. Syndicate  - backend (.NET Lambdas, API Gateway, DynamoDB tables)
+#   3. Frontend   - Angular build with the API URL, uploaded to S3 behind CloudFront
+#   4. Seed       - demo locations, dishes and tables (only when the database is empty)
+#
+# Prerequisites (once): run infra/bootstrap locally and put its `github_role_arn` output into
+# the repository secret AWS_ROLE_ARN. Actions -> Deploy all -> Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_mode:
+        description: "Backend: 'deploy' the first time, 'continue' after a failed first deploy, 'update' afterwards"
+        type: choice
+        options: [deploy, continue, update, skip]
+        default: deploy
+      run_terraform:
+        description: "Run Terraform (infrastructure)"
+        type: boolean
+        default: true
+      run_frontend:
+        description: "Build and upload the frontend"
+        type: boolean
+        default: true
+      run_seed:
+        description: "Seed demo data (skipped automatically if locations already exist)"
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-all
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-west-2
+  APP_DIR: backend/restaurant-backend-app
+  FE_DIR: frontend/restaurant-frontend-app
+  TF_DIR: infra/terraform
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deploy-all-${{ github.run_id }}
+
+      - name: Verify identity
+        run: aws sts get-caller-identity
+
+      # ---------- 1. Terraform ----------
+      - name: Setup Terraform
+        if: inputs.run_terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+          terraform_wrapper: false
+
+      - name: Terraform apply
+        if: inputs.run_terraform
+        working-directory: ${{ env.TF_DIR }}
+        env:
+          ALERT_EMAILS: ${{ vars.ALERT_EMAILS }}
+        run: |
+          if [ -n "$ALERT_EMAILS" ]; then export TF_VAR_alert_emails="$ALERT_EMAILS"; fi
+          terraform init -input=false
+          terraform apply -input=false -auto-approve
+
+      # ---------- 2. Backend (Syndicate) ----------
+      - name: Setup .NET 10
+        if: inputs.backend_mode != 'skip'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install AWS Syndicate
+        if: inputs.backend_mode != 'skip'
+        run: pip install "aws-syndicate>=1.21.2"
+
+      - name: Syndicate build & deploy
+        if: inputs.backend_mode != 'skip'
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          MODE: ${{ inputs.backend_mode }}
+        run: |
+          export SDCT_CONF="$PWD/.syndicate-config-restaurant-backend-app"
+          # project_path must be the absolute path of this checkout
+          sed -i "s#^project_path:.*#project_path: \"$PWD\"#" "$SDCT_CONF/syndicate.yml"
+          syndicate build
+          case "$MODE" in
+            deploy)   syndicate deploy --deploy-name dev ;;
+            continue) syndicate deploy --deploy-name dev --continue-deploy ;;
+            update)   syndicate update --deploy-name dev ;;
+          esac
+
+      # ---------- 3. Frontend ----------
+      - name: Resolve URLs
+        id: urls
+        run: |
+          API_ID=$(aws apigateway get-rest-apis --query "items[?name=='restaurant-backend-api'].id | [0]" --output text)
+          if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then echo "API Gateway not found - deploy the backend first"; exit 1; fi
+          echo "api_url=https://$API_ID.execute-api.$AWS_REGION.amazonaws.com/develop" >> "$GITHUB_OUTPUT"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "bucket=restaurant-frontend-$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+          DIST_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Origins.Items[0].DomainName=='restaurant-frontend-$ACCOUNT_ID.s3.$AWS_REGION.amazonaws.com'].Id | [0]" --output text)
+          DOMAIN=$(aws cloudfront list-distributions --query "DistributionList.Items[?Id=='$DIST_ID'].DomainName | [0]" --output text)
+          echo "dist_id=$DIST_ID" >> "$GITHUB_OUTPUT"
+          echo "site_url=https://$DOMAIN" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        if: inputs.run_frontend
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ${{ env.FE_DIR }}/.nvmrc
+          cache: npm
+          cache-dependency-path: ${{ env.FE_DIR }}/package-lock.json
+
+      - name: Build frontend
+        if: inputs.run_frontend
+        working-directory: ${{ env.FE_DIR }}
+        env:
+          BACKEND_URL: ${{ steps.urls.outputs.api_url }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Upload frontend to S3 and invalidate CloudFront
+        if: inputs.run_frontend
+        working-directory: ${{ env.FE_DIR }}
+        run: |
+          aws s3 sync dist/restaurant-frontend-app/browser "s3://${{ steps.urls.outputs.bucket }}/" --delete
+          if [ "${{ steps.urls.outputs.dist_id }}" != "None" ]; then
+            aws cloudfront create-invalidation --distribution-id "${{ steps.urls.outputs.dist_id }}" --paths "/*" > /dev/null
+          fi
+
+      # ---------- 4. Seed ----------
+      - name: Seed demo data
+        if: inputs.run_seed
+        env:
+          API_URL: ${{ steps.urls.outputs.api_url }}
+          WAITER_EMAIL: ${{ secrets.WAITER_EMAIL }}
+          WAITER_PASSWORD: ${{ secrets.WAITER_PASSWORD }}
+        run: |
+          pip install pillow
+          python scripts/seed.py
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Deployment"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Web app | ${{ steps.urls.outputs.site_url }} |"
+            echo "| API | ${{ steps.urls.outputs.api_url }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
