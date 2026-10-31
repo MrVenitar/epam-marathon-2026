@@ -27,3 +27,7 @@ crash.*.log
 
 # Claude Code local state and worktrees
 .claude/
+
+# Python
+__pycache__/
+*.pyc

@@ -5,10 +5,12 @@ Usage:
     API_URL=https://<api-id>.execute-api.us-west-2.amazonaws.com/develop python scripts/seed.py
 
 Optional:
-    WAITER_EMAIL / WAITER_PASSWORD  - create a waiter account assigned to the first location
+    WAITER_EMAIL / WAITER_PASSWORD  - sign-in credentials for the waiter of the first location
+                                      (every location always gets a waiter, see ensure_waiters)
     SEED_FORCE=1                    - seed even if locations already exist
 
-Idempotent: if the API already returns locations, nothing is created (unless SEED_FORCE=1).
+Idempotent: the catalog is created only when the API has no locations (unless SEED_FORCE=1);
+waiters are ensured for every location on every run.
 Images are taken from the frontend assets and downscaled with Pillow when it is installed;
 without Pillow the dishes/locations are created without images.
 """
@@ -16,6 +18,7 @@ import base64
 import io
 import json
 import os
+import secrets
 import sys
 import time
 import urllib.error
@@ -127,13 +130,14 @@ def create(path, payload, label):
     raise SystemExit(f"Failed to create {label}: {status} {resp}")
 
 
-def main():
+def seed_catalog():
+    """Locations, dishes and tables - only into an empty database. Returns the location ids."""
     status, existing = call("GET", "/locations")
     if status != 200:
         raise SystemExit(f"GET /locations returned {status}: {existing}")
     if existing and not os.environ.get("SEED_FORCE"):
-        print(f"{len(existing)} location(s) already exist - skipping seed (set SEED_FORCE=1 to force).")
-        return
+        print(f"{len(existing)} location(s) already exist - catalog seed skipped (set SEED_FORCE=1 to force).")
+        return [loc.get("id") or loc.get("Id") for loc in existing]
 
     location_ids = []
     for loc in LOCATIONS:
@@ -157,16 +161,40 @@ def main():
                    f"table {number} @ {loc_id}")
         print(f"+ {len(TABLES_PER_LOCATION)} tables @ {loc_id}")
 
-    email, password = os.environ.get("WAITER_EMAIL"), os.environ.get("WAITER_PASSWORD")
-    if email and password:
-        status, resp = call("POST", "/register", {"firstName": "Demo", "lastName": "Waiter", "email": email,
-                                                  "password": password, "confirmPassword": password})
-        print(f"register waiter: {status}")
-        status, resp = call("POST", "/waiters", {"email": email, "locationId": location_ids[0]})
-        print(f"assign waiter to {location_ids[0]}: {status} {resp}")
-    else:
-        print("WAITER_EMAIL/WAITER_PASSWORD not set - no waiter account created.")
+    return location_ids
 
+
+def ensure_waiters(location_ids):
+    """Every location needs at least one waiter: a reservation is assigned to the least busy
+    waiter of its location and cannot be created without one. Idempotent.
+
+    The first location gets WAITER_EMAIL / WAITER_PASSWORD when they are set (a waiter you can
+    sign in with); the others get demo waiters with a random password nobody needs to know."""
+    own_email, own_password = os.environ.get("WAITER_EMAIL"), os.environ.get("WAITER_PASSWORD")
+
+    for index, loc_id in enumerate(location_ids):
+        if index == 0 and own_email and own_password:
+            email, password = own_email, own_password
+        else:
+            email = f"demo.waiter.{loc_id[:8].lower()}@example.com"
+            password = f"Wtr-{secrets.token_hex(3)}a1!"
+
+        # 200 = registered now; an error here usually means the user already exists - fine.
+        call("POST", "/register", {"firstName": "Demo", "lastName": "Waiter", "email": email,
+                                   "password": password, "confirmPassword": password})
+
+        status, resp = call("POST", "/waiters", {"email": email, "locationId": loc_id})
+        if status == 200:
+            print(f"+ waiter assigned to {loc_id}")
+        elif status == 409:
+            print(f"= waiter for {loc_id} already exists")
+        else:
+            raise SystemExit(f"Failed to assign a waiter to {loc_id}: {status} {resp}")
+
+
+def main():
+    location_ids = seed_catalog()
+    ensure_waiters(location_ids)
     print("Seed finished.")
 
 
