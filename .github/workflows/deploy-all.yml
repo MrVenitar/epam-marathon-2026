@@ -43,6 +43,9 @@ env:
   APP_DIR: backend/restaurant-backend-app
   FE_DIR: frontend/restaurant-frontend-app
   TF_DIR: infra/terraform
+  DOTNET_NOLOGO: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
   deploy:
@@ -107,6 +110,15 @@ jobs:
           export SDCT_CONF="$PWD/.syndicate-config-restaurant-backend-app"
           # project_path must be the absolute path of this checkout
           sed -i "s#^project_path:.*#project_path: \"$PWD\"#" "$SDCT_CONF/syndicate.yml"
+          # Syndicate builds the lambdas in parallel; the very first `dotnet` calls then race to
+          # create .NET's shared-memory dir under $XDG_RUNTIME_DIR, which does not exist on the
+          # runner. Create it and warm up dotnet (restore) once, serially, before the build.
+          if [ -n "$XDG_RUNTIME_DIR" ]; then
+            sudo mkdir -p "$XDG_RUNTIME_DIR/.dotnet/shm"
+            sudo chown -R "$(id -u):$(id -g)" "$XDG_RUNTIME_DIR"
+          fi
+          dotnet --info > /dev/null
+          dotnet restore restaurant-backend-app.sln
           syndicate build
           case "$MODE" in
             deploy)   syndicate deploy --deploy-name dev ;;
