@@ -225,6 +225,7 @@ public class GroupPreOrderTests
         var result = await _guestSessionService.GetOwnerSessionIdAsync(OwnerId, ReservationId);
 
         Assert.Equal($"owner-{GroupId}", result.GuestSessionId);
+        Assert.Equal(GroupId, result.GroupReservationId);
         _guestSessions.Verify(r => r.SaveAsync(It.Is<GuestSession>(s =>
             s.Id == $"owner-{GroupId}" && s.IsOwnerSession && s.OwnerUserId == OwnerId && s.GroupReservationId == GroupId)), Times.Once);
     }

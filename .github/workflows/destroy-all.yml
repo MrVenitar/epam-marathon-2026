@@ -83,7 +83,7 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         env:
           ALERT_EMAILS: ${{ vars.ALERT_EMAILS }}
-          TF_VAR_enable_cloudfront: ${{ vars.ENABLE_CLOUDFRONT == 'true' }}
+          TF_VAR_enable_cloudfront: ${{ vars.ENABLE_CLOUDFRONT != 'false' }}
         run: |
           if [ -n "$ALERT_EMAILS" ]; then export TF_VAR_alert_emails="$ALERT_EMAILS"; fi
           terraform init -input=false

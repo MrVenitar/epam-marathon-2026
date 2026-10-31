@@ -36,9 +36,12 @@ Error bodies: `{"error": "..."}` for 401/403/404, `{"message": "...", "errorCode
 
 ## Behaviour chosen where the specification is silent
 
-- **Owner session.** `GET .../guest-session-id` creates the owner's own session on the first call.
+- **Owner session.** `GET .../guest-session-id` returns `{ guestSessionId, groupReservationId }` and
+  creates the owner's own session on the first call.
   Its id is `owner-{groupReservationId}`, so repeated or simultaneous calls never create a second one.
   It is shown in the snapshot with `type: "Owner"` and the owner's first name, and is listed first.
+  The owner's own dishes are the reservation's regular pre-order (`POST /orders`); guests' submitted
+  dishes are added to that order on submit.
 - **Guest limit.** The owner always takes one seat; the owner's own session is not counted again
   when guests join (`CountByGroupReservationId` ignores it).
 - **Submit.** Only sessions with `isSubmitted: true` are taken (the owner's session too, if submitted).

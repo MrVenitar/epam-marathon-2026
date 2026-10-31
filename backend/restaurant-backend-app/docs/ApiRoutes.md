@@ -555,12 +555,15 @@ Response: `200 OK`
 ```
 
 ### `GET` /reservations/{reservationId}/guest-session-id
-Owner only. Id of the owner's own session in the group of this reservation (created on the first call).
+Owner only. Id of the owner's own session in the group of this reservation (created on the first call)
+and the id of the group itself (the invite endpoints stop working once the group is full or submitted,
+so the owner's screen takes the group id from here).
 
 Response: `200 OK`
 ```json
 {
-  "guestSessionId": "string"
+  "guestSessionId": "owner-<groupReservationId>",
+  "groupReservationId": "string"
 }
 ```
 

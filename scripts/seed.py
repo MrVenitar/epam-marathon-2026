@@ -92,6 +92,9 @@ def call(method, path, body=None, token=None, retries=4):
             if e.code >= 500 and attempt < retries - 1:  # cold starts of .NET lambdas
                 time.sleep(3)
                 continue
+            if e.code == 429 and attempt < retries - 1:  # API stage throttling (cost guard)
+                time.sleep(2 * (attempt + 1))
+                continue
             return e.code, text
         except (urllib.error.URLError, TimeoutError) as e:
             if attempt < retries - 1:

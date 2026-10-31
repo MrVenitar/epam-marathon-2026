@@ -8,9 +8,13 @@ Restaurant app (Angular + .NET Lambdas on AWS) deployed to my own AWS account.
   with every guest's dishes and totals, get the owner's own session, submit one consolidated pre-order
   to the restaurant, remove a guest. Contract, status codes and chosen behaviour:
   [`backend/restaurant-backend-app/docs/GroupPreOrder.md`](backend/restaurant-backend-app/docs/GroupPreOrder.md).
-  Unit tests run in **Backend CI** on every push.
+  Unit tests run in **Backend CI** / **Frontend CI** on every push.
+- **Owner's Group Pre-Order screen** (frontend): *My reservations* → **Group Pre-Order** on a reservation
+  for 2+ guests → every participant's dishes, consolidated order, Submit, Remove Guest, refresh every 15 s.
 - **One-click AWS deployment** (below): Terraform + Syndicate + frontend + demo data in GitHub Actions,
   AWS access through GitHub OIDC (no stored keys), and a matching **Destroy all**.
+- **Costs**: what 10 days of running cost, idle and with manual testing, and the guards against surprise
+  bills — [`docs/COSTS.md`](docs/COSTS.md).
 - Follow-up work split into small tasks for an AI assistant: [`tasks/ARGON_TASKS.md`](tasks/ARGON_TASKS.md).
 
 ## How this fork is deployed
@@ -30,9 +34,9 @@ Terraform → Syndicate (backend) → frontend build + upload to S3/CloudFront �
    (e.g. `["me@example.com"]`) for budget/alarm e-mails.
 3. **Actions → Deploy all → Run workflow** (`backend_mode = deploy` the first time, `update` afterwards).
    The web app URL is printed in the run summary.
-4. **CloudFront (HTTPS)**: new AWS accounts must be verified by AWS Support before CloudFront can be created.
-   Until then the frontend is served from S3 static website hosting (HTTP). After verification set the
-   repository variable `ENABLE_CLOUDFRONT` to `true` and run the workflow again (`backend_mode = skip`).
+4. **CloudFront (HTTPS)** is used by default. A brand-new AWS account must first be verified by AWS Support
+   for CloudFront; until then set the repository variable `ENABLE_CLOUDFRONT` to `false` and the frontend is
+   served from S3 static website hosting (HTTP).
 
 **Turning it off / on.** *Actions → Destroy all → Run workflow* (type `destroy`) removes every application
 resource from AWS (all data is lost; the repository and the bootstrap stay). *Deploy all* with

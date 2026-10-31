@@ -17,7 +17,7 @@ variable "alert_emails" {
 }
 
 variable "enable_cloudfront" {
-  description = "Serve the frontend through CloudFront (HTTPS). New AWS accounts must be verified by AWS Support before CloudFront can be used; until then the frontend is served by S3 static website hosting (HTTP). In CI set via the GitHub variable ENABLE_CLOUDFRONT."
+  description = "Serve the frontend through CloudFront (HTTPS). Set to false only for a new AWS account that AWS Support has not yet verified for CloudFront: the frontend is then served by S3 static website hosting (HTTP). In CI: GitHub variable ENABLE_CLOUDFRONT=false."
   type        = bool
-  default     = false
+  default     = true
 }

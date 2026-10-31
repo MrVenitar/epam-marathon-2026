@@ -248,7 +248,7 @@ public class GuestSessionService(
             await CreateGroupOwnerSessionAsync(userId, group.GroupReservationId);
         }
 
-        return new OwnerSessionResponse(ownerSessionId);
+        return new OwnerSessionResponse(ownerSessionId, group.GroupReservationId);
     }
 
     private static string GetOwnerSessionId(string groupReservationId) => $"owner-{groupReservationId}";

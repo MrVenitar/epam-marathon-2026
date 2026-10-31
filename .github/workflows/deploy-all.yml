@@ -78,8 +78,8 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         env:
           ALERT_EMAILS: ${{ vars.ALERT_EMAILS }}
-          # Set the repository variable ENABLE_CLOUDFRONT=true once AWS has verified the account
-          TF_VAR_enable_cloudfront: ${{ vars.ENABLE_CLOUDFRONT == 'true' }}
+          # CloudFront (HTTPS) is on unless the repository variable ENABLE_CLOUDFRONT is set to 'false'
+          TF_VAR_enable_cloudfront: ${{ vars.ENABLE_CLOUDFRONT != 'false' }}
         run: |
           if [ -n "$ALERT_EMAILS" ]; then export TF_VAR_alert_emails="$ALERT_EMAILS"; fi
           terraform init -input=false
@@ -181,6 +181,25 @@ jobs:
         run: |
           pip install pillow
           python scripts/seed.py
+
+      # ---------- 5. Cost guard ----------
+      # API Gateway is billed per request and has no limit of its own besides the account's
+      # 10 000 requests/s. Requests rejected by stage throttling (429) never reach Lambda and are
+      # not billed, so this caps the bill even if a bot hammers the public API (docs/COSTS.md).
+      # One person clicking through the site stays below it. Override with the repository
+      # variables API_RATE_LIMIT / API_BURST_LIMIT (e.g. raise them while running AQA tests).
+      - name: Limit API request rate (cost guard)
+        if: always() && steps.urls.outputs.api_url != ''
+        env:
+          RATE: ${{ vars.API_RATE_LIMIT || '3' }}
+          BURST: ${{ vars.API_BURST_LIMIT || '30' }}
+        run: |
+          API_ID=$(aws apigateway get-rest-apis --query "items[?name=='restaurant-backend-api'].id | [0]" --output text)
+          aws apigateway update-stage --rest-api-id "$API_ID" --stage-name develop \
+            --patch-operations \
+              "op=replace,path=/*/*/throttling/rateLimit,value=$RATE" \
+              "op=replace,path=/*/*/throttling/burstLimit,value=$BURST" > /dev/null
+          echo "API throttled to $RATE requests/s (burst $BURST)"
 
       - name: Summary
         if: always()
