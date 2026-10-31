@@ -25,6 +25,12 @@ export const tokenInterceptor: HttpInterceptorFn = (
       catchError((error: HttpErrorResponse) => {
         console.log(error);
 
+        // Background requests (e.g. the owner's group screen refreshing every 15 s) handle
+        // their own errors and must not show a toast on every failed attempt.
+        if (req.context.get(SKIP_ERROR_TOAST)) {
+          return throwError(() => error);
+        }
+
         let errorMessage = 'An unexpected error occurred.';
         if (error.error && typeof error.error === 'string') {
           errorMessage = error.error;

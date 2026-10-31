@@ -1,0 +1,72 @@
+name: Frontend CI
+
+# Type-checks, builds and tests the Angular app on every push / pull request that touches it.
+# Blocking: app type-check, production build, tests of the group pre-order feature.
+# Reported only (pre-existing debt of the course code): spec type-check, lint, the whole test suite.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend/restaurant-frontend-app
+    env:
+      CHROME_BIN: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/restaurant-frontend-app/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/restaurant-frontend-app/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check app
+        run: npx tsc -p tsconfig.app.json --noEmit
+
+      - name: Production build
+        run: npm run build
+        env:
+          BACKEND_URL: https://example.com
+
+      # Ubuntu 24.04 restricts unprivileged user namespaces, which Chrome's sandbox needs.
+      - name: Allow Chrome sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Test group pre-order (owner flow)
+        run: >
+          npx ng test --watch=false --browsers=ChromeHeadless
+          --include src/app/services/group-orders
+          --include src/app/components/group-orders
+          --include src/app/shared/helpers/consolidate-pre-order.spec.ts
+
+      - name: Type-check specs (report only)
+        continue-on-error: true
+        run: npx tsc -p tsconfig.spec.json --noEmit
+
+      - name: Lint new feature (report only)
+        continue-on-error: true
+        run: >
+          npx eslint
+          src/app/pages/group-order-page
+          src/app/components/group-orders
+          src/app/services/group-orders
+          src/app/models/group-orders

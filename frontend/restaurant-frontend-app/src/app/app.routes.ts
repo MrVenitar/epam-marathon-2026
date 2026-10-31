@@ -96,6 +96,16 @@ export const routes: Routes = [
           ),
       },
       {
+        // Owner's group pre-order (lazy: does not grow the initial bundle)
+        path: 'reservations/:reservationId/group-order',
+        canActivate: [AuthGuard],
+        data: { authorized: true },
+        loadComponent: () =>
+          import('./pages/group-order-page/group-order-page.component').then(
+            (m) => m.GroupOrderPageComponent
+          ),
+      },
+      {
         path: 'join/:token',
         loadComponent: () =>
           import('./pages/guest-pre-order-page/guest-pre-order-page.component').then(

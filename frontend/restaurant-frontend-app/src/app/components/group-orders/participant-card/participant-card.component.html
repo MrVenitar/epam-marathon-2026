@@ -1,0 +1,47 @@
+<article class="participant-card" [class.participant-card--me]="isMe()">
+  <header class="card-header">
+    <h3 class="card-title">{{ title() }}</h3>
+    @if (statusLabel()) {
+      <span
+        class="cart-status"
+        [class.cart-status--submitted]="participant().isSubmitted"
+        [class.cart-status--choosing]="!participant().isSubmitted"
+      >
+        {{ statusLabel() }}
+      </span>
+    }
+  </header>
+
+  @if (lines().length === 0) {
+    <p class="no-dishes">No dishes yet</p>
+  } @else {
+    <ul class="dish-list">
+      @for (line of lines(); track line.id) {
+        <li class="dish-line">
+          @if (line.imageUrl) {
+            <img class="dish-avatar" [src]="line.imageUrl" alt="" loading="lazy" />
+          } @else {
+            <span class="dish-avatar dish-avatar--letter" aria-hidden="true">{{ line.initial }}</span>
+          }
+          <span class="dish-name">{{ line.name }}</span>
+          <span class="dish-qty">× {{ line.quantity }}</span>
+          <span class="dish-price">{{ line.lineTotal | currency }}</span>
+        </li>
+      }
+    </ul>
+  }
+
+  <footer class="card-footer">
+    <span class="subtotal">Subtotal <strong>{{ participant().total | currency }}</strong></span>
+    @if (canRemove()) {
+      <button
+        type="button"
+        class="remove-button"
+        [attr.aria-label]="'Remove ' + participant().name"
+        (click)="onRemove()"
+      >
+        Remove Guest
+      </button>
+    }
+  </footer>
+</article>
