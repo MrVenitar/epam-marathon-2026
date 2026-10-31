@@ -2,6 +2,17 @@
 
 Restaurant app (Angular + .NET Lambdas on AWS) deployed to my own AWS account.
 
+## What this fork adds
+
+- **Group pre-order for the owner** (backend, `homework-backend.md` levels 1–3): see the owner's group
+  with every guest's dishes and totals, get the owner's own session, submit one consolidated pre-order
+  to the restaurant, remove a guest. Contract, status codes and chosen behaviour:
+  [`backend/restaurant-backend-app/docs/GroupPreOrder.md`](backend/restaurant-backend-app/docs/GroupPreOrder.md).
+  Unit tests run in **Backend CI** on every push.
+- **One-click AWS deployment** (below): Terraform + Syndicate + frontend + demo data in GitHub Actions,
+  AWS access through GitHub OIDC (no stored keys), and a matching **Destroy all**.
+- Follow-up work split into small tasks for an AI assistant: [`tasks/ARGON_TASKS.md`](tasks/ARGON_TASKS.md).
+
 ## How this fork is deployed
 
 Everything after a one-time bootstrap runs in GitHub Actions (`.github/workflows/deploy-all.yml`):
