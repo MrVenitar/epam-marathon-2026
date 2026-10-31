@@ -23,6 +23,10 @@ Terraform → Syndicate (backend) → frontend build + upload to S3/CloudFront �
    Until then the frontend is served from S3 static website hosting (HTTP). After verification set the
    repository variable `ENABLE_CLOUDFRONT` to `true` and run the workflow again (`backend_mode = skip`).
 
+**Turning it off / on.** *Actions → Destroy all → Run workflow* (type `destroy`) removes every application
+resource from AWS (all data is lost; the repository and the bootstrap stay). *Deploy all* with
+`backend_mode = deploy` brings everything back with fresh demo data.
+
 The original course deployment guide follows below.
 
 ---

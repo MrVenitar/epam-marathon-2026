@@ -1,0 +1,115 @@
+name: Destroy all
+
+# Removes everything "Deploy all" created in AWS, in reverse order:
+#   1. empties the S3 buckets (frontend, dish/location images, profile images, swagger UI)
+#   2. Syndicate clean   - backend: Lambdas, API Gateway, DynamoDB tables (ALL DATA), IAM roles
+#   3. Terraform destroy - Cognito (ALL USERS), S3 buckets, SQS, CloudFront, alarms, dashboard, budget
+#   4. deletes the Lambda log groups
+#
+# The repository is NOT touched, and the one-time bootstrap (Terraform state bucket, Syndicate
+# artifacts bucket, GitHub OIDC role) stays, so "Deploy all" can bring everything back.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm. All data (users, reservations, orders) will be lost.'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-all # never run at the same time as a deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-west-2
+  APP_DIR: backend/restaurant-backend-app
+  TF_DIR: infra/terraform
+
+jobs:
+  destroy:
+    if: inputs.confirm == 'destroy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: destroy-all-${{ github.run_id }}
+
+      - name: Empty S3 buckets
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          for b in restaurant-frontend restaurant-backend-dev-images restaurant-backend-dev-profile-images restaurant-backend-dev-swagger-ui; do
+            bucket="$b-$ACCOUNT_ID"
+            if aws s3api head-bucket --bucket "$bucket" 2>/dev/null; then
+              echo "Emptying $bucket"
+              aws s3 rm "s3://$bucket" --recursive --only-show-errors
+            else
+              echo "$bucket does not exist - skipping"
+            fi
+          done
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Syndicate clean (backend)
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          pip install "aws-syndicate>=1.21.2"
+          export SDCT_CONF="$PWD/.syndicate-config-restaurant-backend-app"
+          sed -i "s#^project_path:.*#project_path: \"$PWD\"#" "$SDCT_CONF/syndicate.yml"
+          # S3 buckets belong to Terraform; Syndicate removes the rest of the backend.
+          syndicate clean --excluded-types s3_bucket || echo "::warning::syndicate clean reported a problem (nothing deployed?) - continuing"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+          terraform_wrapper: false
+
+      - name: Terraform destroy
+        working-directory: ${{ env.TF_DIR }}
+        env:
+          ALERT_EMAILS: ${{ vars.ALERT_EMAILS }}
+          TF_VAR_enable_cloudfront: ${{ vars.ENABLE_CLOUDFRONT == 'true' }}
+        run: |
+          if [ -n "$ALERT_EMAILS" ]; then export TF_VAR_alert_emails="$ALERT_EMAILS"; fi
+          terraform init -input=false
+          terraform destroy -input=false -auto-approve
+
+      - name: Delete Lambda log groups
+        run: |
+          for fn in api-handler reports-handler report-sender; do
+            aws logs delete-log-group --log-group-name "/aws/lambda/$fn" 2>/dev/null && echo "deleted /aws/lambda/$fn" || true
+          done
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Destroy finished"
+            echo ""
+            echo "All application resources were removed from AWS. The repository and the bootstrap"
+            echo "(state bucket, artifacts bucket, OIDC role) are kept: run **Deploy all** with"
+            echo "\`backend_mode = deploy\` to bring the application back."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  not-confirmed:
+    if: inputs.confirm != 'destroy'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "::error::Not confirmed - type exactly: destroy"
+          exit 1
